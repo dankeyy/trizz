@@ -5,8 +5,6 @@ const stdout = bufWriter.writer();
 
 const FileArrayList = std.ArrayList(std.fs.IterableDir.Entry);
 
-const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
-
 fn cmp(context: void, a: std.fs.IterableDir.Entry, b: std.fs.IterableDir.Entry) bool {
     _ = context;
     var i: usize = 0;
@@ -53,9 +51,14 @@ fn walk(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8, cap:
     defer dir.close();
     var it = dir.iterate();
 
-    while (try it.next()) |entry|
-        if (!std.mem.startsWith(u8, entry.name, "."))
-            try entries.append(entry);
+    while (try it.next()) |entry| {
+        if (!std.mem.startsWith(u8, entry.name, ".")) {
+            try entries.append(std.fs.IterableDir.Entry{
+                .name = try allocator.dupe(u8, entry.name),
+                .kind = entry.kind,
+            });
+        }
+    }
 
     std.sort.sort(std.fs.IterableDir.Entry, entries.items, {}, cmp);
 
@@ -97,14 +100,15 @@ fn walk(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8, cap:
 }
 
 pub fn main() !void {
-    var gpa = GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(!gpa.deinit());
-    const allocator = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     _ = try stdout.write(".\n");
     var pathBuf: [4096]u8 = undefined;
     var filePathBuf: [4096]u8 = undefined;
     const initialPath = try std.fmt.bufPrint(&pathBuf, ".", .{});
+
     const res = try walk(&allocator, initialPath, &filePathBuf, 4096, 0, 0, 0);
 
     const dirs = res.dir_count;

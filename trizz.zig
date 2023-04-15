@@ -30,13 +30,17 @@ const Counts = struct {
     file_count: usize,
 };
 
-fn printNode(entryName: []const u8, level: usize, last: bool, colour: []const u8) !void {
+fn printNode(entryName: []const u8, level: usize, last: bool, colour: []const u8, symlinkedTo: ?[]u8) !void {
     for (0..level) |_| _ = try stdout.write("│   ");
     _ = try stdout.write(if (last) "└── " else "├── ");
     _ = try stdout.write(colour);
     _ = try stdout.write(entryName);
-    _ = try stdout.write("\n");
     _ = try stdout.write("\x1b[0m"); // reset escape code
+    if (symlinkedTo != null) {
+        _ = try stdout.write(" -> ");
+        _ = try stdout.write(symlinkedTo.?);
+    }
+    _ = try stdout.write("\n");
 }
 
 fn walk(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8, cap: usize, level: usize, dirs: usize, files: usize) !Counts {
@@ -60,13 +64,14 @@ fn walk(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8, cap:
 
         switch (entry.kind) {
             .Directory => {
-                try printNode(entry.name, level, last, "\x1b[1;34m"); // bold blue escape code
+                try printNode(entry.name, level, last, "\x1b[1;34m", null); // bold blue escape code
                 var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
                 const res = try walk(allocator, slice, filePathBuf, cap, level + 1, dir_count + 1, file_count);
 
                 dir_count = res.dir_count;
                 file_count = res.file_count;
             },
+
             .File => {
                 const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
                 newFileBuf.ptr[newFileBuf.len] = 0;
@@ -75,8 +80,13 @@ fn walk(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8, cap:
                     "\x1b[1;32m"
                 else
                     "";
-                try printNode(entry.name, level, last, colour);
+                try printNode(entry.name, level, last, colour, null);
                 file_count += 1;
+            },
+            .SymLink => {
+                const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
+                const linked = try std.os.readlink(newFileBuf, filePathBuf);
+                try printNode(entry.name, level, last, "\x1b[1;35m", linked);
             },
             else => {},
         }
@@ -102,6 +112,6 @@ pub fn main() !void {
 
     const dirstxt = if (dirs == 1) "directory" else "directories";
     const filestxt = if (files == 1) "file" else "files";
-    _ = try stdout.print("{d} {s}, {d} {s}\n", .{ dirs, dirstxt, files, filestxt });
+    _ = try stdout.print("\n{d} {s}, {d} {s}\n", .{ dirs, dirstxt, files, filestxt });
     try bufWriter.flush();
 }

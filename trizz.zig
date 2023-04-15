@@ -39,7 +39,7 @@ fn printNode(entryName: []const u8, level: usize, last: bool, colour: []const u8
     _ = try stdout.write("\x1b[0m"); // reset escape code
 }
 
-fn walk(allocator: *const std.mem.Allocator, path: []u8, cap: usize, level: usize, dirs: usize, files: usize) !Counts {
+fn walk(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8, cap: usize, level: usize, dirs: usize, files: usize) !Counts {
     var dir_count = dirs;
     var file_count = files;
 
@@ -62,15 +62,23 @@ fn walk(allocator: *const std.mem.Allocator, path: []u8, cap: usize, level: usiz
             .Directory => {
                 try printNode(entry.name, level, last, "\x1b[1;34m"); // bold blue escape code
                 var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-                const res = try walk(allocator, slice, cap, level + 1, dir_count + 1, file_count);
+                const res = try walk(allocator, slice, filePathBuf, cap, level + 1, dir_count + 1, file_count);
 
                 dir_count = res.dir_count;
                 file_count = res.file_count;
             },
-            else => {
-                try printNode(entry.name, level, last, "");
+            .File => {
+                const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
+                newFileBuf.ptr[newFileBuf.len] = 0;
+
+                var colour = if (std.os.linux.access(@ptrCast([*:0]const u8, newFileBuf.ptr), 1) == 0)
+                    "\x1b[1;32m"
+                else
+                    "";
+                try printNode(entry.name, level, last, colour);
                 file_count += 1;
             },
+            else => {},
         }
     }
 
@@ -85,14 +93,15 @@ pub fn main() !void {
 
     _ = try stdout.write(".\n");
     var pathBuf: [4096]u8 = undefined;
-    pathBuf[0] = '.';
-    const res = try walk(&allocator, pathBuf[0..1], 4096, 0, 0, 0);
+    var filePathBuf: [4096]u8 = undefined;
+    const initialPath = try std.fmt.bufPrint(&pathBuf, ".", .{});
+    const res = try walk(&allocator, initialPath, &filePathBuf, 4096, 0, 0, 0);
 
     const dirs = res.dir_count;
     const files = res.file_count;
 
     const dirstxt = if (dirs == 1) "directory" else "directories";
     const filestxt = if (files == 1) "file" else "files";
-    _ = try stdout.print("{d} {s}, {d} {s}", .{ dirs, dirstxt, files, filestxt });
+    _ = try stdout.print("{d} {s}, {d} {s}\n", .{ dirs, dirstxt, files, filestxt });
     try bufWriter.flush();
 }

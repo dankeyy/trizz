@@ -29,8 +29,6 @@ fn cmp(context: void, a: std.fs.IterableDir.Entry, b: std.fs.IterableDir.Entry) 
 }
 
 fn printEntry(entryName: []const u8, level: usize, last: bool, colour: []const u8, symlinkedTo: ?[]u8) !void {
-    // _ = try stdout.write("│   ");
-    // std.debug.print("\n{any}\n", .{last});
     for (0..level) |_| _ = try stdout.write("│   ");
 
     _ = try stdout.write(if (last) "└── " else "├── ");
@@ -45,7 +43,7 @@ fn printEntry(entryName: []const u8, level: usize, last: bool, colour: []const u
 }
 
 // prints an entry, adds it to corresponding count, returns a flag indicating if recursion is needed (true for directories)
-inline fn printAndCountEntries(entry: std.fs.IterableDir.Entry, filePathBuf: []u8, path: []u8, cap: usize, level: usize, last: bool, c: *Counts) !bool {
+inline fn printAndCountEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8, path: []u8, cap: usize, level: usize, last: bool, c: *Counts) !bool {
     switch (entry.kind) {
         .Directory => {
             c.dir_count += 1;
@@ -119,7 +117,7 @@ fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level:
 
     while (try it.next()) |nextEntry| {
         if (!std.mem.startsWith(u8, entry.name, ".")) {
-            var needsToRecurse = try printAndCountEntries(entry, filePathBuf, path, cap, level, false, &counts);
+            var needsToRecurse = try printAndCountEntry(entry, filePathBuf, path, cap, level, false, &counts);
             if (needsToRecurse) {
                 var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
                 const res = try walkUnsorted(nameBuf, slice, filePathBuf, cap, level + 1);
@@ -130,7 +128,7 @@ fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level:
         }
         entry = copyEntry(nameBuf, &nextEntry);
     }
-    var needsToRecurse = try printAndCountEntries(entry, filePathBuf, path, cap, level, true, &counts);
+    var needsToRecurse = try printAndCountEntry(entry, filePathBuf, path, cap, level, true, &counts);
     if (needsToRecurse) {
         var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
         const res = try walkUnsorted(nameBuf, slice, filePathBuf, cap, level + 1);
@@ -165,7 +163,7 @@ fn walkSorted(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8
 
     for (1.., entries.items) |i, entry| {
         const last = i == entries.items.len;
-        var needsToRecurse = try printAndCountEntries(entry, filePathBuf, path, cap, level, last, &counts);
+        var needsToRecurse = try printAndCountEntry(entry, filePathBuf, path, cap, level, last, &counts);
         if (needsToRecurse) {
             var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
             const res = try walkSorted(allocator, slice, filePathBuf, cap, level + 1);

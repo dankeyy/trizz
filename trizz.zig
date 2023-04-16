@@ -28,7 +28,7 @@ fn cmp(context: void, a: std.fs.IterableDir.Entry, b: std.fs.IterableDir.Entry) 
     return a.name.len < b.name.len;
 }
 
-fn printNode(entryName: []const u8, level: usize, last: bool, colour: []const u8, symlinkedTo: ?[]u8) !void {
+fn printEntry(entryName: []const u8, level: usize, last: bool, colour: []const u8, symlinkedTo: ?[]u8) !void {
     // _ = try stdout.write("│   ");
     // std.debug.print("\n{any}\n", .{last});
     for (0..level) |_| _ = try stdout.write("│   ");
@@ -44,16 +44,13 @@ fn printNode(entryName: []const u8, level: usize, last: bool, colour: []const u8
     _ = try stdout.write("\n");
 }
 
-inline fn printAndCount(entry: std.fs.IterableDir.Entry, nameBuf: []u8, filePathBuf: []u8, path: []u8, cap: usize, level: usize, last: bool, c: *Counts) !void {
+// prints an entry, adds it to corresponding count, returns a flag indicating if recursion is needed (true for directories)
+inline fn printAndCountEntries(entry: std.fs.IterableDir.Entry, filePathBuf: []u8, path: []u8, cap: usize, level: usize, last: bool, c: *Counts) !bool {
     switch (entry.kind) {
         .Directory => {
             c.dir_count += 1;
-            try printNode(entry.name, level, last, "\x1b[1;34m", null); // bold blue
-            var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-            const res = try walkUnsorted(nameBuf, slice, filePathBuf, cap, level + 1);
-
-            c.dir_count += res.dir_count;
-            c.file_count += res.file_count;
+            try printEntry(entry.name, level, last, "\x1b[1;34m", null); // bold blue
+            return true;
         },
 
         .File => {
@@ -64,37 +61,38 @@ inline fn printAndCount(entry: std.fs.IterableDir.Entry, nameBuf: []u8, filePath
                 "\x1b[1;32m" // bold green
             else
                 "";
-            try printNode(entry.name, level, last, colour, null);
+            try printEntry(entry.name, level, last, colour, null);
             c.file_count += 1;
         },
         .SymLink => {
             const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
             const linked = try std.os.readlink(newFileBuf, filePathBuf);
-            try printNode(entry.name, level, last, "\x1b[1;35m", linked); // bold purple-ish
+            try printEntry(entry.name, level, last, "\x1b[1;35m", linked); // bold purple-ish
             c.file_count += 1;
         },
         .BlockDevice, .CharacterDevice => {
-            try printNode(entry.name, level, last, "\x1b[1;33m", null); // bold yellow
+            try printEntry(entry.name, level, last, "\x1b[1;33m", null); // bold yellow
             c.file_count += 1;
         },
         .NamedPipe => {
-            try printNode(entry.name, level, last, "\x1b[38;5;214m", null); // regular gold-ish
+            try printEntry(entry.name, level, last, "\x1b[38;5;214m", null); // regular gold-ish
             c.file_count += 1;
         },
         .UnixDomainSocket => {
-            try printNode(entry.name, level, last, "\x1b[38;5;208m", null); // regular orange
+            try printEntry(entry.name, level, last, "\x1b[38;5;208m", null); // regular orange
             c.file_count += 1;
         },
 
         else => {
             // who cares about whiteout/ doors/ eventports/ unknown anyway
-            try printNode(entry.name, level, last, "\x1b[1;90m", null); // bold black
+            try printEntry(entry.name, level, last, "\x1b[1;90m", null); // bold black
             c.file_count += 1;
         },
     }
+    return false;
 }
 
-inline fn cpy(nameBuf: []u8, nextEntry: *const std.fs.IterableDir.Entry) std.fs.IterableDir.Entry {
+inline fn copyEntry(nameBuf: []u8, nextEntry: *const std.fs.IterableDir.Entry) std.fs.IterableDir.Entry {
     @memcpy(nameBuf.ptr, nextEntry.name.ptr, nextEntry.name.len);
     return std.fs.IterableDir.Entry{
         .name = nameBuf[0..nextEntry.name.len],
@@ -117,23 +115,36 @@ fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level:
         return counts;
     }
 
-    var entry: std.fs.IterableDir.Entry = cpy(nameBuf, &entryData);
+    var entry: std.fs.IterableDir.Entry = copyEntry(nameBuf, &entryData);
 
     while (try it.next()) |nextEntry| {
         if (!std.mem.startsWith(u8, entry.name, ".")) {
-            try printAndCount(entry, nameBuf, filePathBuf, path, cap, level, false, &counts);
+            var needsToRecurse = try printAndCountEntries(entry, filePathBuf, path, cap, level, false, &counts);
+            if (needsToRecurse) {
+                var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
+                const res = try walkUnsorted(nameBuf, slice, filePathBuf, cap, level + 1);
+
+                counts.dir_count += res.dir_count;
+                counts.file_count += res.file_count;
+            }
         }
-        entry = cpy(nameBuf, &nextEntry);
+        entry = copyEntry(nameBuf, &nextEntry);
     }
-    try printAndCount(entry, nameBuf, filePathBuf, path, cap, level, true, &counts);
+    var needsToRecurse = try printAndCountEntries(entry, filePathBuf, path, cap, level, true, &counts);
+    if (needsToRecurse) {
+        var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
+        const res = try walkUnsorted(nameBuf, slice, filePathBuf, cap, level + 1);
+
+        counts.dir_count += res.dir_count;
+        counts.file_count += res.file_count;
+    }
 
     try bufWriter.flush();
     return counts;
 }
 
 fn walkSorted(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8, cap: usize, level: usize) !Counts {
-    var dir_count: usize = 0;
-    var file_count: usize = 0;
+    var counts = Counts{ .dir_count = 0, .file_count = 0 };
 
     var entries = FileArrayList.init(allocator.*);
     defer entries.deinit();
@@ -154,57 +165,18 @@ fn walkSorted(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8
 
     for (1.., entries.items) |i, entry| {
         const last = i == entries.items.len;
+        var needsToRecurse = try printAndCountEntries(entry, filePathBuf, path, cap, level, last, &counts);
+        if (needsToRecurse) {
+            var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
+            const res = try walkSorted(allocator, slice, filePathBuf, cap, level + 1);
 
-        switch (entry.kind) {
-            .Directory => {
-                try printNode(entry.name, level, last, "\x1b[1;34m", null); // bold blue escape code
-                var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-                const res = try walkSorted(allocator, slice, filePathBuf, cap, level + 1);
-
-                dir_count += res.dir_count + 1;
-                file_count += res.file_count;
-            },
-
-            .File => {
-                const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-                newFileBuf.ptr[newFileBuf.len] = 0;
-
-                var colour = if (std.os.linux.access(@ptrCast([*:0]const u8, newFileBuf.ptr), 1) == 0) // executable
-                    "\x1b[1;32m" // bold green
-                else
-                    "";
-                try printNode(entry.name, level, last, colour, null);
-                file_count += 1;
-            },
-            .SymLink => {
-                const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-                const linked = try std.os.readlink(newFileBuf, filePathBuf);
-                try printNode(entry.name, level, last, "\x1b[1;35m", linked); // bold purple-ish
-                file_count += 1;
-            },
-            .BlockDevice, .CharacterDevice => {
-                try printNode(entry.name, level, last, "\x1b[1;33m", null); // bold yellow
-                file_count += 1;
-            },
-            .NamedPipe => {
-                try printNode(entry.name, level, last, "\x1b[38;5;214m", null); // regular gold-ish
-                file_count += 1;
-            },
-            .UnixDomainSocket => {
-                try printNode(entry.name, level, last, "\x1b[38;5;208m", null); // regular orange
-                file_count += 1;
-            },
-
-            else => {
-                // who cares about whiteout/ doors/ eventports/ unknown anyway
-                try printNode(entry.name, level, last, "\x1b[1;90m", null); // bold black
-                file_count += 1;
-            },
+            counts.dir_count += res.dir_count;
+            counts.file_count += res.file_count;
         }
     }
 
     try bufWriter.flush();
-    return .{ .dir_count = dir_count, .file_count = file_count };
+    return counts;
 }
 
 pub fn main() !void {

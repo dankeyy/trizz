@@ -48,7 +48,7 @@ inline fn printAndCount(entry: std.fs.IterableDir.Entry, nameBuf: []u8, filePath
     switch (entry.kind) {
         .Directory => {
             c.dir_count += 1;
-            try printNode(entry.name, level, last, "\x1b[1;34m", null); // bold blue escape code
+            try printNode(entry.name, level, last, "\x1b[1;34m", null); // bold blue
             var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
             const res = try walkUnsorted(nameBuf, slice, filePathBuf, cap, level + 1);
 
@@ -60,8 +60,8 @@ inline fn printAndCount(entry: std.fs.IterableDir.Entry, nameBuf: []u8, filePath
             const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
             newFileBuf.ptr[newFileBuf.len] = 0;
 
-            var colour = if (std.os.linux.access(@ptrCast([*:0]const u8, newFileBuf.ptr), 1) == 0)
-                "\x1b[1;32m"
+            var colour = if (std.os.linux.access(@ptrCast([*:0]const u8, newFileBuf.ptr), 1) == 0) // executable
+                "\x1b[1;32m" // bold green
             else
                 "";
             try printNode(entry.name, level, last, colour, null);
@@ -70,10 +70,27 @@ inline fn printAndCount(entry: std.fs.IterableDir.Entry, nameBuf: []u8, filePath
         .SymLink => {
             const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
             const linked = try std.os.readlink(newFileBuf, filePathBuf);
-            try printNode(entry.name, level, last, "\x1b[1;35m", linked);
+            try printNode(entry.name, level, last, "\x1b[1;35m", linked); // bold purple-ish
             c.file_count += 1;
         },
-        else => c.file_count += 1,
+        .BlockDevice, .CharacterDevice => {
+            try printNode(entry.name, level, last, "\x1b[1;33m", null); // bold yellow
+            c.file_count += 1;
+        },
+        .NamedPipe => {
+            try printNode(entry.name, level, last, "\x1b[38;5;214m", null); // regular gold-ish
+            c.file_count += 1;
+        },
+        .UnixDomainSocket => {
+            try printNode(entry.name, level, last, "\x1b[38;5;208m", null); // regular orange
+            c.file_count += 1;
+        },
+
+        else => {
+            // who cares about whiteout/ doors/ eventports/ unknown anyway
+            try printNode(entry.name, level, last, "\x1b[1;90m", null); // bold black
+            c.file_count += 1;
+        },
     }
 }
 
@@ -152,8 +169,8 @@ fn walkSorted(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8
                 const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
                 newFileBuf.ptr[newFileBuf.len] = 0;
 
-                var colour = if (std.os.linux.access(@ptrCast([*:0]const u8, newFileBuf.ptr), 1) == 0)
-                    "\x1b[1;32m"
+                var colour = if (std.os.linux.access(@ptrCast([*:0]const u8, newFileBuf.ptr), 1) == 0) // executable
+                    "\x1b[1;32m" // bold green
                 else
                     "";
                 try printNode(entry.name, level, last, colour, null);
@@ -162,10 +179,27 @@ fn walkSorted(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8
             .SymLink => {
                 const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
                 const linked = try std.os.readlink(newFileBuf, filePathBuf);
-                try printNode(entry.name, level, last, "\x1b[1;35m", linked);
+                try printNode(entry.name, level, last, "\x1b[1;35m", linked); // bold purple-ish
                 file_count += 1;
             },
-            else => file_count += 1,
+            .BlockDevice, .CharacterDevice => {
+                try printNode(entry.name, level, last, "\x1b[1;33m", null); // bold yellow
+                file_count += 1;
+            },
+            .NamedPipe => {
+                try printNode(entry.name, level, last, "\x1b[38;5;214m", null); // regular gold-ish
+                file_count += 1;
+            },
+            .UnixDomainSocket => {
+                try printNode(entry.name, level, last, "\x1b[38;5;208m", null); // regular orange
+                file_count += 1;
+            },
+
+            else => {
+                // who cares about whiteout/ doors/ eventports/ unknown anyway
+                try printNode(entry.name, level, last, "\x1b[1;90m", null); // bold black
+                file_count += 1;
+            },
         }
     }
 

@@ -47,7 +47,7 @@ fn printEntry(entryName: []const u8, level: usize, verticalBars: usize, isLast: 
         _ = try stdout.writeAll(" -> ");
         _ = try stdout.writeAll(symlinkedTo.?);
     }
-    _ = try stdout.write("\n");
+    _ = try stdout.writeAll("\n");
 }
 
 // prints an entry, adds it to corresponding count, returns a flag indicating if recursion is needed (true for directories)

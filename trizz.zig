@@ -33,19 +33,19 @@ fn printEntry(entryName: []const u8, level: usize, verticalBars: usize, isLast: 
     for (0..level) |i| {
         const bit = (vbar >> @intCast(u6, i)) & 1;
         if (bit == 1) {
-            _ = try stdout.write("    ");
+            _ = try stdout.writeAll("    ");
         } else {
-            _ = try stdout.write("│   ");
+            _ = try stdout.writeAll("│   ");
         }
     }
 
-    _ = try stdout.write(if (isLast) "└── " else "├── ");
-    _ = try stdout.write(colour);
-    _ = try stdout.write(entryName);
-    _ = try stdout.write("\x1b[0m"); // reset escape code
+    _ = try stdout.writeAll(if (isLast) "└── " else "├── ");
+    _ = try stdout.writeAll(colour);
+    _ = try stdout.writeAll(entryName);
+    _ = try stdout.writeAll("\x1b[0m"); // reset escape code
     if (symlinkedTo != null) {
-        _ = try stdout.write(" -> ");
-        _ = try stdout.write(symlinkedTo.?);
+        _ = try stdout.writeAll(" -> ");
+        _ = try stdout.writeAll(symlinkedTo.?);
     }
     _ = try stdout.write("\n");
 }
@@ -70,7 +70,6 @@ inline fn printAndCountEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8,
         },
         .SymLink => {
             const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-            // const linked: []u8 = undefined;
             c.file_count += 1;
             if (std.os.readlink(newFileBuf, filePathBuf)) |linked| {
                 try printEntry(entry.name, level, verticalBars, isLast, "\x1b[1;35m", linked); // bold purple-ish
@@ -149,10 +148,10 @@ fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level:
     return counts;
 }
 
-fn walkSorted(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8, cap: usize, level: usize, verticalBars: usize) !Counts {
+fn walkSorted(allocator: std.mem.Allocator, path: []u8, filePathBuf: []u8, cap: usize, level: usize, verticalBars: usize) !Counts {
     var counts = Counts{};
 
-    var entries = FileArrayList.init(allocator.*);
+    var entries = FileArrayList.init(allocator);
     defer entries.deinit();
 
     var dir = std.fs.cwd().openIterableDir(path, .{}) catch |err| switch (err) {
@@ -204,8 +203,9 @@ fn strlen(s: [*:0]u8) u64 {
 }
 
 pub fn main() !void {
-    var pathBuf: [4096]u8 = undefined;
-    var filePathBuf: [4096]u8 = undefined;
+    const CAP = 4097;
+    var pathBuf: [CAP]u8 = undefined;
+    var filePathBuf: [CAP]u8 = undefined;
     var initialPath: []u8 = undefined;
 
     // custom path
@@ -232,10 +232,10 @@ pub fn main() !void {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
         const allocator = arena.allocator();
-        res = try walkSorted(&allocator, initialPath, &filePathBuf, 4096, 0, 0);
+        res = try walkSorted(allocator, initialPath, &filePathBuf, CAP, 0, 0);
     } else {
         var nameBuf: [255]u8 = undefined;
-        res = try walkUnsorted(&nameBuf, initialPath, &filePathBuf, 4096, 0, 0);
+        res = try walkUnsorted(&nameBuf, initialPath, &filePathBuf, CAP, 0, 0);
     }
 
     const dirs = res.dir_count;

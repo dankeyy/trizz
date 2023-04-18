@@ -211,20 +211,49 @@ fn walkSorted(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8
     return counts;
 }
 
+fn strlen(s: [*:0]u8) u64 {
+    var len: u64 = 0;
+    while (s[len] != 0) len +%= 1;
+    return len;
+}
+
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    _ = allocator;
-
-    _ = try stdout.write(".\n");
     var pathBuf: [4096]u8 = undefined;
-    const initialPath = try std.fmt.bufPrint(&pathBuf, "/proc", .{});
     var filePathBuf: [4096]u8 = undefined;
-    var nameBuf: [255]u8 = undefined;
+    var initialPath: []u8 = undefined;
 
-    // const res = try walkSorted(&allocator, initialPath, &filePathBuf, 4096, 0, 0);
-    const res = try walkUnsorted(&nameBuf, initialPath, &filePathBuf, 4096, 0, 0);
+    // custom path
+    if (std.os.argv.len > 1) {
+        const len = strlen(std.os.argv[1]);
+        @memcpy(&pathBuf, std.os.argv[1], len);
+        initialPath = pathBuf[0..len];
+    }
+    else {
+        initialPath = try std.fmt.bufPrint(&pathBuf, ".", .{});
+    }
+
+    // opt in to sorting
+    var sorted: bool = false;
+    if (std.os.argv.len > 2) {
+        const arg = std.os.argv[2][0..strlen(std.os.argv[2])];
+        if (std.mem.eql(u8, arg, "--sorted")) {
+            sorted = true;
+        }
+    }
+
+    _ = try stdout.print("{s}\n", .{initialPath});
+    var res: Counts = undefined;
+    if (sorted) {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        const allocator = arena.allocator();
+        res = try walkSorted(&allocator, initialPath, &filePathBuf, 4096, 0, 0);
+    }
+    else {
+        var nameBuf: [255]u8 = undefined;
+        res = try walkUnsorted(&nameBuf, initialPath, &filePathBuf, 4096, 0, 0);
+
+    }
 
     const dirs = res.dir_count;
     const files = res.file_count;

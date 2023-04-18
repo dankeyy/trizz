@@ -59,8 +59,7 @@ inline fn printAndCountEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8,
             return true;
         },
         .File => {
-            const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-            newFileBuf.ptr[newFileBuf.len] = 0;
+            const newFileBuf = try std.fmt.bufPrintZ(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
 
             var colour = if (std.os.linux.access(@ptrCast([*:0]const u8, newFileBuf.ptr), 1) == 0) // executable
                 "\x1b[1;32m" // bold green

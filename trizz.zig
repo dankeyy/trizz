@@ -57,7 +57,6 @@ inline fn printAndCountEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8,
             try printEntry(entry.name, level, inNLasts, isLast, "\x1b[1;34m", null); // bold blue
             return true;
         },
-
         .File => {
             const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
             newFileBuf.ptr[newFileBuf.len] = 0;
@@ -71,9 +70,15 @@ inline fn printAndCountEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8,
         },
         .SymLink => {
             const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-            const linked = try std.os.readlink(newFileBuf, filePathBuf);
-            try printEntry(entry.name, level, inNLasts, isLast, "\x1b[1;35m", linked); // bold purple-ish
+            // const linked: []u8 = undefined;
             c.file_count += 1;
+            if (std.os.readlink(newFileBuf, filePathBuf)) |linked| {
+                try printEntry(entry.name, level, inNLasts, isLast, "\x1b[1;35m", linked); // bold purple-ish
+            }
+            else |err| switch (err) {
+                std.os.ReadLinkError.AccessDenied => return false,
+                else => unreachable, // TODO?
+            }
         },
         .BlockDevice, .CharacterDevice => {
             try printEntry(entry.name, level, inNLasts, isLast, "\x1b[1;33m", null); // bold yellow
@@ -87,7 +92,6 @@ inline fn printAndCountEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8,
             try printEntry(entry.name, level, inNLasts, isLast, "\x1b[38;5;208m", null); // regular orange
             c.file_count += 1;
         },
-
         else => {
             // who cares about whiteout/ doors/ eventports/ unknown anyway
             try printEntry(entry.name, level, inNLasts, isLast, "\x1b[1;90m", null); // bold black
@@ -108,7 +112,14 @@ inline fn copyEntry(nameBuf: []u8, nextEntry: *const std.fs.IterableDir.Entry) s
 fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level: usize, inNLasts: usize) !Counts {
     var counts = Counts{ .dir_count = 0, .file_count = 0 };
 
-    var dir = try std.fs.cwd().openIterableDir(path, .{});
+    var dir: std.fs.IterableDir = undefined;
+    if (std.fs.cwd().openIterableDir(path, .{})) |directory| {
+        dir = directory;
+    } else |err| switch (err) {
+        std.fs.Dir.OpenError.AccessDenied => return counts,
+        else => unreachable, // TODO?
+    }
+
     defer dir.close();
     var it = dir.iterate();
     var entryData: std.fs.IterableDir.Entry = undefined;
@@ -153,7 +164,15 @@ fn walkSorted(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8
 
     var entries = FileArrayList.init(allocator.*);
     defer entries.deinit();
-    var dir = try std.fs.cwd().openIterableDir(path, .{});
+
+    var dir: std.fs.IterableDir = undefined;
+    if (std.fs.cwd().openIterableDir(path, .{})) |directory| {
+        dir = directory;
+    } else |err| switch (err) {
+        std.fs.Dir.OpenError.AccessDenied => return counts,
+        else => unreachable,
+    }
+
     defer dir.close();
     var it = dir.iterate();
 

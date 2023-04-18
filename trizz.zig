@@ -6,8 +6,8 @@ const stdout = bufWriter.writer();
 const FileArrayList = std.ArrayList(std.fs.IterableDir.Entry);
 
 const Counts = struct {
-    dir_count: usize,
-    file_count: usize,
+    dir_count: usize = 0,
+    file_count: usize = 0,
 };
 
 fn cmp(context: void, a: std.fs.IterableDir.Entry, b: std.fs.IterableDir.Entry) bool {
@@ -110,26 +110,16 @@ inline fn copyEntry(nameBuf: []u8, nextEntry: *const std.fs.IterableDir.Entry) s
 }
 
 fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level: usize, verticalBars: u64) !Counts {
-    var counts = Counts{ .dir_count = 0, .file_count = 0 };
+    var counts = Counts{};
 
-    var dir: std.fs.IterableDir = undefined;
-    if (std.fs.cwd().openIterableDir(path, .{})) |directory| {
-        dir = directory;
-    } else |err| switch (err) {
+    var dir = std.fs.cwd().openIterableDir(path, .{}) catch |err| switch (err) {
         std.fs.Dir.OpenError.AccessDenied => return counts,
         else => unreachable, // TODO?
-    }
+    };
 
     defer dir.close();
     var it = dir.iterate();
-    var entryData: std.fs.IterableDir.Entry = undefined;
-
-    var iteratorData = try it.next();
-    if (iteratorData != null) {
-        entryData = iteratorData.?;
-    } else {
-        return counts;
-    }
+    const entryData = try it.next() orelse return counts;
 
     var entry: std.fs.IterableDir.Entry = copyEntry(nameBuf, &entryData);
 
@@ -161,18 +151,15 @@ fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level:
 }
 
 fn walkSorted(allocator: *const std.mem.Allocator, path: []u8, filePathBuf: []u8, cap: usize, level: usize, verticalBars: usize) !Counts {
-    var counts = Counts{ .dir_count = 0, .file_count = 0 };
+    var counts = Counts{};
 
     var entries = FileArrayList.init(allocator.*);
     defer entries.deinit();
 
-    var dir: std.fs.IterableDir = undefined;
-    if (std.fs.cwd().openIterableDir(path, .{})) |directory| {
-        dir = directory;
-    } else |err| switch (err) {
+    var dir = std.fs.cwd().openIterableDir(path, .{}) catch |err| switch (err) {
         std.fs.Dir.OpenError.AccessDenied => return counts,
-        else => unreachable,
-    }
+        else => unreachable, // TODO?
+    };
 
     defer dir.close();
     var it = dir.iterate();
@@ -227,8 +214,7 @@ pub fn main() !void {
         const len = strlen(std.os.argv[1]);
         @memcpy(&pathBuf, std.os.argv[1], len);
         initialPath = pathBuf[0..len];
-    }
-    else {
+    } else {
         initialPath = try std.fmt.bufPrint(&pathBuf, ".", .{});
     }
 
@@ -248,11 +234,9 @@ pub fn main() !void {
         defer arena.deinit();
         const allocator = arena.allocator();
         res = try walkSorted(&allocator, initialPath, &filePathBuf, 4096, 0, 0);
-    }
-    else {
+    } else {
         var nameBuf: [255]u8 = undefined;
         res = try walkUnsorted(&nameBuf, initialPath, &filePathBuf, 4096, 0, 0);
-
     }
 
     const dirs = res.dir_count;

@@ -28,7 +28,7 @@ fn cmp(context: void, a: std.fs.IterableDir.Entry, b: std.fs.IterableDir.Entry) 
     return a.name.len < b.name.len;
 }
 
-fn printEntry(entryName: []const u8, level: usize, verticalBars: usize, isLast: bool, color: []const u8, symlinkedTo: ?[]u8) !void {
+fn printEntry(entryName: []const u8, level: usize, verticalBars: usize, isLast: bool, color: []const u8, symlinkedTo: ?[]u8, noColor: bool) !void {
     var vbar = verticalBars;
     for (0..level) |i| {
         const bit = (vbar >> @intCast(u6, i)) & 1;
@@ -40,13 +40,15 @@ fn printEntry(entryName: []const u8, level: usize, verticalBars: usize, isLast: 
     }
 
     _ = try stdout.writeAll(if (isLast) "└── " else "├── ");
-    if (!std.mem.eql(u8, color, "")) {
+    if (noColor) {
+        _ = try stdout.writeAll(entryName);
+    }
+    else {
         _ = try stdout.writeAll(color);
         _ = try stdout.writeAll(entryName);
         _ = try stdout.writeAll("\x1b[0m"); // reset escape code
-    } else {
-        _ = try stdout.writeAll(entryName);
     }
+
     if (symlinkedTo != null) {
         _ = try stdout.writeAll(" -> ");
         _ = try stdout.writeAll(symlinkedTo.?);
@@ -59,8 +61,8 @@ fn printEntry(entryName: []const u8, level: usize, verticalBars: usize, isLast: 
 fn printFormattedEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8, path: []u8, cap: usize, level: usize, verticalBars: usize, isLast: bool, noColor: bool) !bool {
     switch (entry.kind) {
         .Directory => {
-            const color = if (noColor) "" else "\x1b[1;34m"; // bold blue
-            try printEntry(entry.name, level, verticalBars, isLast, color, null);
+            // bold blue
+            try printEntry(entry.name, level, verticalBars, isLast, "\x1b[1;34m", null, noColor);
             return true;
         },
         .File => {
@@ -74,35 +76,35 @@ fn printFormattedEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8, path:
                     break :picker "";
                 } // bold green
             } else "";
-            try printEntry(entry.name, level, verticalBars, isLast, color, null);
+            try printEntry(entry.name, level, verticalBars, isLast, color, null, noColor);
         },
         .SymLink => {
             const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
 
-            const color = if (noColor) "" else "\x1b[1;35m"; // bold purple-ish
+            // bold purple-ish
             if (std.os.readlink(newFileBuf, filePathBuf)) |linked| {
-                try printEntry(entry.name, level, verticalBars, isLast, color, linked);
+                try printEntry(entry.name, level, verticalBars, isLast, "\x1b[1;35m", linked, noColor);
             } else |err| switch (err) {
                 // std.os.ReadLinkError.AccessDenied => return false,
                 else => return false,
             }
         },
         .BlockDevice, .CharacterDevice => {
-            const color = if (noColor) "" else "\x1b[1;33m"; // bold yellow
-            try printEntry(entry.name, level, verticalBars, isLast, color, null);
+            // bold yellow
+            try printEntry(entry.name, level, verticalBars, isLast, "\x1b[1;33m", null, noColor);
         },
         .NamedPipe => {
-            const color = if (noColor) "" else "\x1b[38;5;214m"; // regular gold-ish
-            try printEntry(entry.name, level, verticalBars, isLast, color, null);
+            // regular gold-ish
+            try printEntry(entry.name, level, verticalBars, isLast, "\x1b[38;5;214m", null, noColor);
         },
         .UnixDomainSocket => {
-            const color = if (noColor) "" else "\x1b[38;5;208m"; // regular orange
-            try printEntry(entry.name, level, verticalBars, isLast, color, null);
+            // regular orange
+            try printEntry(entry.name, level, verticalBars, isLast, "\x1b[38;5;208m", null, noColor);
         },
         else => {
             // who cares about whiteout/ doors/ eventports/ unknown anyway
-            const color = if (noColor) "" else "\x1b[1;90m"; // bold black
-            try printEntry(entry.name, level, verticalBars, isLast, color, null);
+            // bold black
+            try printEntry(entry.name, level, verticalBars, isLast, "\x1b[1;90m", null, noColor);
         },
     }
     return false;

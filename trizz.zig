@@ -28,7 +28,7 @@ fn cmp(context: void, a: std.fs.IterableDir.Entry, b: std.fs.IterableDir.Entry) 
     return a.name.len < b.name.len;
 }
 
-fn printEntry(entryName: []const u8, level: usize, verticalBars: usize, isLast: bool, colour: []const u8, symlinkedTo: ?[]u8) !void {
+fn printEntry(entryName: []const u8, level: usize, verticalBars: usize, isLast: bool, color: []const u8, symlinkedTo: ?[]u8) !void {
     var vbar = verticalBars;
     for (0..level) |i| {
         const bit = (vbar >> @intCast(u6, i)) & 1;
@@ -40,9 +40,13 @@ fn printEntry(entryName: []const u8, level: usize, verticalBars: usize, isLast: 
     }
 
     _ = try stdout.writeAll(if (isLast) "└── " else "├── ");
-    _ = try stdout.writeAll(colour);
-    _ = try stdout.writeAll(entryName);
-    _ = try stdout.writeAll("\x1b[0m"); // reset escape code
+    if (!std.mem.eql(u8, color, "")) {
+        _ = try stdout.writeAll(color);
+        _ = try stdout.writeAll(entryName);
+        _ = try stdout.writeAll("\x1b[0m"); // reset escape code
+    } else {
+        _ = try stdout.writeAll(entryName);
+    }
     if (symlinkedTo != null) {
         _ = try stdout.writeAll(" -> ");
         _ = try stdout.writeAll(symlinkedTo.?);
@@ -51,48 +55,60 @@ fn printEntry(entryName: []const u8, level: usize, verticalBars: usize, isLast: 
 }
 
 // prints an entry, adds it to corresponding count, returns a flag indicating if recursion is needed (true for directories)
-inline fn printAndCountEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8, path: []u8, cap: usize, level: usize, verticalBars: usize, isLast: bool, c: *Counts) !bool {
+inline fn printAndCountEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8, path: []u8, cap: usize, level: usize, verticalBars: usize, isLast: bool, c: *Counts, noColor: bool) !bool {
     switch (entry.kind) {
         .Directory => {
             c.dir_count += 1;
-            try printEntry(entry.name, level, verticalBars, isLast, "\x1b[1;34m", null); // bold blue
+            const color = if (noColor) "" else "\x1b[1;34m"; // bold blue
+            try printEntry(entry.name, level, verticalBars, isLast, color, null);
             return true;
         },
         .File => {
-            const newFileBuf = try std.fmt.bufPrintZ(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-
-            var colour = if (std.os.linux.access(@ptrCast([*:0]const u8, newFileBuf.ptr), 1) == 0) // executable
-                "\x1b[1;32m" // bold green
-            else
-                "";
-            try printEntry(entry.name, level, verticalBars, isLast, colour, null);
+            const color =
+                if (!noColor) picker: {
+                    const newFileBuf = try std.fmt.bufPrintZ(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
+                    if (std.os.linux.access(@ptrCast([*:0]const u8, newFileBuf.ptr), 1) == 0) {
+                        break :picker "\x1b[1;32m";
+                    }
+                    else {
+                        break :picker "";
+                    } // bold green
+                }
+                else "";
+            try printEntry(entry.name, level, verticalBars, isLast, color, null);
             c.file_count += 1;
         },
         .SymLink => {
             const newFileBuf = try std.fmt.bufPrint(filePathBuf.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
             c.file_count += 1;
+
+            const color = if (noColor) "" else "\x1b[1;35m"; // bold purple-ish
             if (std.os.readlink(newFileBuf, filePathBuf)) |linked| {
-                try printEntry(entry.name, level, verticalBars, isLast, "\x1b[1;35m", linked); // bold purple-ish
+                try printEntry(entry.name, level, verticalBars, isLast, color, linked);
             } else |err| switch (err) {
-                std.os.ReadLinkError.AccessDenied => return false,
-                else => unreachable, // TODO?
+                // std.os.ReadLinkError.AccessDenied => return false,
+                else => return false
             }
         },
         .BlockDevice, .CharacterDevice => {
-            try printEntry(entry.name, level, verticalBars, isLast, "\x1b[1;33m", null); // bold yellow
+            const color = if (noColor) "" else "\x1b[1;33m"; // bold yellow
+            try printEntry(entry.name, level, verticalBars, isLast, color, null);
             c.file_count += 1;
         },
         .NamedPipe => {
-            try printEntry(entry.name, level, verticalBars, isLast, "\x1b[38;5;214m", null); // regular gold-ish
+            const color = if (noColor) "" else "\x1b[38;5;214m"; // regular gold-ish
+            try printEntry(entry.name, level, verticalBars, isLast, color, null);
             c.file_count += 1;
         },
         .UnixDomainSocket => {
-            try printEntry(entry.name, level, verticalBars, isLast, "\x1b[38;5;208m", null); // regular orange
+            const color = if (noColor) "" else  "\x1b[38;5;208m"; // regular orange
+            try printEntry(entry.name, level, verticalBars, isLast, color, null);
             c.file_count += 1;
         },
         else => {
             // who cares about whiteout/ doors/ eventports/ unknown anyway
-            try printEntry(entry.name, level, verticalBars, isLast, "\x1b[1;90m", null); // bold black
+            const color = if (noColor) "" else  "\x1b[1;90m";  // bold black
+            try printEntry(entry.name, level, verticalBars, isLast, color, null);
             c.file_count += 1;
         },
     }
@@ -107,12 +123,12 @@ inline fn copyEntry(nameBuf: []u8, nextEntry: *const std.fs.IterableDir.Entry) s
     };
 }
 
-fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level: usize, verticalBars: u64) !Counts {
+fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level: usize, verticalBars: u64, hideHidden: bool, noColor: bool) !Counts {
     var counts = Counts{};
 
     var dir = std.fs.cwd().openIterableDir(path, .{}) catch |err| switch (err) {
-        std.fs.Dir.OpenError.AccessDenied => return counts,
-        else => unreachable, // TODO?
+        // std.fs.Dir.OpenError.AccessDenied => return counts,
+        else => return counts,
     };
 
     defer dir.close();
@@ -122,11 +138,11 @@ fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level:
     var entry: std.fs.IterableDir.Entry = copyEntry(nameBuf, &entryData);
 
     while (try it.next()) |nextEntry| {
-        if (!std.mem.startsWith(u8, entry.name, ".")) {
-            var needsToRecurse = try printAndCountEntry(entry, filePathBuf, path, cap, level, verticalBars, false, &counts);
+        if (!(std.mem.startsWith(u8, entry.name, ".") and hideHidden)) {
+            var needsToRecurse = try printAndCountEntry(entry, filePathBuf, path, cap, level, verticalBars, false, &counts, noColor);
             if (needsToRecurse) {
                 var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-                const res = try walkUnsorted(nameBuf, slice, filePathBuf, cap, level + 1, verticalBars);
+                const res = try walkUnsorted(nameBuf, slice, filePathBuf, cap, level + 1, verticalBars, hideHidden, noColor);
 
                 counts.dir_count += res.dir_count;
                 counts.file_count += res.file_count;
@@ -135,35 +151,34 @@ fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level:
         entry = copyEntry(nameBuf, &nextEntry);
     }
     const vbar = verticalBars | (@intCast(u64, 1) << @intCast(u6, level));
-    var needsToRecurse = try printAndCountEntry(entry, filePathBuf, path, cap, level, vbar, true, &counts);
+    var needsToRecurse = try printAndCountEntry(entry, filePathBuf, path, cap, level, vbar, true, &counts, noColor);
     if (needsToRecurse) {
         var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-        const res = try walkUnsorted(nameBuf, slice, filePathBuf, cap, level + 1, vbar);
+        const res = try walkUnsorted(nameBuf, slice, filePathBuf, cap, level + 1, vbar, hideHidden, noColor);
 
         counts.dir_count += res.dir_count;
         counts.file_count += res.file_count;
     }
 
-    try bufWriter.flush();
     return counts;
 }
 
-fn walkSorted(allocator: std.mem.Allocator, path: []u8, filePathBuf: []u8, cap: usize, level: usize, verticalBars: usize) !Counts {
+fn walkSorted(allocator: std.mem.Allocator, path: []u8, filePathBuf: []u8, cap: usize, level: usize, verticalBars: usize, hideHidden: bool, noColor: bool) !Counts {
     var counts = Counts{};
 
     var entries = FileArrayList.init(allocator);
     defer entries.deinit();
 
     var dir = std.fs.cwd().openIterableDir(path, .{}) catch |err| switch (err) {
-        std.fs.Dir.OpenError.AccessDenied => return counts,
-        else => unreachable, // TODO?
+        // std.fs.Dir.OpenError.AccessDenied => return counts,
+        else => return counts,
     };
 
     defer dir.close();
     var it = dir.iterate();
 
     while (try it.next()) |entry| {
-        if (!std.mem.startsWith(u8, entry.name, ".")) {
+        if (!(std.mem.startsWith(u8, entry.name, ".") and hideHidden)) {
             try entries.append(std.fs.IterableDir.Entry{
                 .name = try allocator.dupe(u8, entry.name),
                 .kind = entry.kind,
@@ -182,17 +197,16 @@ fn walkSorted(allocator: std.mem.Allocator, path: []u8, filePathBuf: []u8, cap: 
             vbar = 0;
         }
 
-        var needsToRecurse = try printAndCountEntry(entry, filePathBuf, path, cap, level, vbar, isLast, &counts);
+        var needsToRecurse = try printAndCountEntry(entry, filePathBuf, path, cap, level, vbar, isLast, &counts, noColor);
         if (needsToRecurse) {
             var slice = try std.fmt.bufPrint(path.ptr[0..cap], "{s}/{s}", .{ path, entry.name });
-            const res = try walkSorted(allocator, slice, filePathBuf, cap, level + 1, vbar);
+            const res = try walkSorted(allocator, slice, filePathBuf, cap, level + 1, vbar, hideHidden, noColor);
 
             counts.dir_count += res.dir_count;
             counts.file_count += res.file_count;
         }
     }
 
-    try bufWriter.flush();
     return counts;
 }
 
@@ -206,25 +220,40 @@ pub fn main() !void {
     const CAP = 4097;
     var pathBuf: [CAP]u8 = undefined;
     var filePathBuf: [CAP]u8 = undefined;
-    var initialPath: []u8 = undefined;
 
-    // custom path
-    if (std.os.argv.len > 1) {
-        const len = strlen(std.os.argv[1]);
-        @memcpy(&pathBuf, std.os.argv[1], len);
+    var customPath: ?[*:0]u8 = null;
+    var sorted: bool = false;
+    var hideHidden: bool = true;
+    var noColor: bool = false;
+    for (0.., std.os.argv) |i, arg| {
+        if (i==0) continue;
+        if (!(arg[0] == '-')) {
+           customPath.? = arg;
+        }
+        else {
+            const argSlice = arg[0..strlen(arg)];
+            // opt in to sorting
+            if (std.mem.eql(u8, argSlice, "--sorted")) {
+                sorted = true;
+            }
+            else if (std.mem.eql(u8, argSlice, "-a")) {
+                hideHidden = false;
+            }
+            else if (std.mem.eql(u8, argSlice, "--no-color")) {
+                noColor = true;
+            }
+        }
+    }
+    // custom path or default (current directory)
+    var initialPath: []u8 = undefined;
+    if (customPath != null) {
+        const len = strlen(customPath.?);
+        @memcpy(&pathBuf, customPath.?, len);
         initialPath = pathBuf[0..len];
     } else {
         initialPath = try std.fmt.bufPrint(&pathBuf, ".", .{});
     }
 
-    // opt in to sorting
-    var sorted: bool = false;
-    if (std.os.argv.len > 2) {
-        const arg = std.os.argv[2][0..strlen(std.os.argv[2])];
-        if (std.mem.eql(u8, arg, "--sorted")) {
-            sorted = true;
-        }
-    }
 
     _ = try stdout.print("{s}\n", .{initialPath});
     var res: Counts = undefined;
@@ -232,10 +261,10 @@ pub fn main() !void {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
         const allocator = arena.allocator();
-        res = try walkSorted(allocator, initialPath, &filePathBuf, CAP, 0, 0);
+        res = try walkSorted(allocator, initialPath, &filePathBuf, CAP, 0, 0, hideHidden, noColor);
     } else {
         var nameBuf: [255]u8 = undefined;
-        res = try walkUnsorted(&nameBuf, initialPath, &filePathBuf, CAP, 0, 0);
+        res = try walkUnsorted(&nameBuf, initialPath, &filePathBuf, CAP, 0, 0, hideHidden, noColor);
     }
 
     const dirs = res.dir_count;

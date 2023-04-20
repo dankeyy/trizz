@@ -138,7 +138,7 @@ fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level:
         var maybeNextEntry = try it.next();
         if (maybeNextEntry == null) {
             last = true;
-            vbar = verticalBars | (@intCast(u64, 1) << @intCast(u6, level));
+            vbar |= (@intCast(u64, 1) << @intCast(u6, level));
         }
         var res: Counts = Counts{};
         if (!(std.mem.startsWith(u8, entry.name, ".") and hideHidden)) {
@@ -194,11 +194,9 @@ fn walkSorted(allocator: std.mem.Allocator, path: []u8, filePathBuf: []u8, cap: 
 
     for (1.., entries.items) |i, entry| {
         const isLast = i == entries.items.len;
-        var vbar: u64 = 0;
+        var vbar = verticalBars;
         if (isLast) {
-            vbar = verticalBars | (@intCast(u64, 1) << @intCast(u6, level));
-        } else {
-            vbar = 0;
+            vbar |= (@intCast(u64, 1) << @intCast(u6, level));
         }
 
         const isDir = try printFormattedEntry(entry, filePathBuf, path, cap, level, vbar, isLast, noColor);

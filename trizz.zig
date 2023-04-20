@@ -86,7 +86,7 @@ fn printFormattedEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8, path:
                 try printEntry(entry.name, level, verticalBars, isLast, "\x1b[1;35m", linked, noColor);
             } else |err| switch (err) {
                 // std.os.ReadLinkError.AccessDenied => return false,
-                else => return false,
+                inline else => return false,
             }
         },
         .BlockDevice, .CharacterDevice => {
@@ -101,7 +101,7 @@ fn printFormattedEntry(entry: std.fs.IterableDir.Entry, filePathBuf: []u8, path:
             // regular orange
             try printEntry(entry.name, level, verticalBars, isLast, "\x1b[38;5;208m", null, noColor);
         },
-        else => {
+        inline else => {
             // who cares about whiteout/ doors/ eventports/ unknown anyway
             // bold black
             try printEntry(entry.name, level, verticalBars, isLast, "\x1b[1;90m", null, noColor);
@@ -123,7 +123,7 @@ fn walkUnsorted(nameBuf: []u8, path: []u8, filePathBuf: []u8, cap: usize, level:
 
     var dir = std.fs.cwd().openIterableDir(path, .{}) catch |err| switch (err) {
         // std.fs.Dir.OpenError.AccessDenied => return counts,
-        else => return counts,
+        inline else => return counts,
     };
 
     defer dir.close();
@@ -175,7 +175,7 @@ fn walkSorted(allocator: std.mem.Allocator, path: []u8, filePathBuf: []u8, cap: 
 
     var dir = std.fs.cwd().openIterableDir(path, .{}) catch |err| switch (err) {
         // std.fs.Dir.OpenError.AccessDenied => return counts,
-        else => return counts,
+        inline else => return counts,
     };
 
     defer dir.close();
